@@ -6,80 +6,91 @@
 """
 Created on Mon Mar 27 16:09:52 2023
 
+   
 @author: tanguy
 """
 
-# packages pour travailler avec les données
+#!/usr/bin/env python
+# coding: utf-8
+
+# # Python project - Momentum analysis
+
+# 
+# For this python project we decided to analyse the momentum strategy using the CAC40 index. Finance professionals use momentum analysis as a method to evaluate the strength and direction of an asset's price movement. It assists traders in deciding when to purchase or sell based on momentum by calculating the rate of change in the asset's price over a given time frame. This approach is based on the concept that patterns in price changes typically last for a given amount of time.This strategy prevaled in the 1990s just when the CAC40 was created. 
+# 
+# This project starts with the collection of CAC40 data and the calculation of returns. Then, a basic long-only strategy will be introduced as a benchmark to compare it to other strategies. Using different metrics such as Sharpe, Sortino, and Calmar ratios we will measure the performance of this strategy. 
+# 
+# Then we will introduce the time series momentum strategy and explore its performance by varying one parameter: the time horizon. 
+# 
+# Finally, we will analyse the benefits of using time series momentum strategies for their diversification role when combined in a portfolio with long-only strategies.
+# 
+
+# ### Collection of CAC40 data
+
+# In[1]:
+
+
+#If you have never used Yahoo finance#
+get_ipython().system('pip install yfinance')
+
+
+# In[4]:
+
+
+#Instal the packages#
+
 import pandas as pd      
 import numpy as np   
 import datetime as dt
 import yfinance as yf
-
-# packages pour le visualisation
 import matplotlib.pyplot as plt
 
-data_source = yf.Ticker('^GSPC')
-# On récupère tout l'historique 
-data_hist = data_source.history(period='max')
-# Print data history
-data_hist
 
-#Début de l'utilisation de la momentum strategie 
-data = data_hist["1985-12-01":"2020-12-31"].copy() 
+# In[5]:
 
+
+#Import data from Yahoo finance#
+
+data_source = yf.Ticker('^FCHI')
+data = data_source.history(period='max')
+data
+
+
+# In[6]:
+
+
+#Control the quality of the data + graph#
 len(
   data[
     data.Close.isna() |
     data.Close.isnull() |
-    data.Close < 1e-8])
-
+    data.Close < 1e-8
+  ]
+)
 data.Close.plot()
 plt.ylabel("Price");
 
-#calculation of the returns#
+
+# In[7]:
 
 
+#Compute the returns#
 def calc_returns(srs, offset=1):
     
     returns = srs / srs.shift(offset) - 1
     return returns
-
 data["daily_returns"] = calc_returns(data["Close"])
 data.head()
-
 data["next_day_returns"] = data["daily_returns"].shift(-1)
 data.head()
 
 
-#Code pour atténuer les effets des outliers 
-VOL_THRESHOLD = 5  
-data["srs"] = data["Close"]
-SMOOTH_WINDOW = 252 
-ewm = data["srs"].ewm(halflife=SMOOTH_WINDOW)
+# In[8]:
 
-# Exponentially-weighted moving mean
-means = ewm.mean()
 
-# Exponentially-weighted moving standard deviation
-stds = ewm.std()
+##Lon-only strategy##
 
-# Upper bound (EWM_mean + 5 * EWM_std)
-ub = means + VOL_THRESHOLD * stds
-# On remplace les valeurs trop grandes (plus grandes que l'upper bound) par l'upper bound 
-data["srs"] = np.minimum(data["srs"], ub);
-
-# Lower bound (EWM_mean - 5 * EWM_std)
-lb = means - VOL_THRESHOLD * stds
-
-# On remplace les valeurs trop petites (plus petites que le lower bound) par le lower bound
-data["srs"] = np.maximum(data["srs"], lb);
-
-# on calcule les daily_returns à partir de la série srs (celle que nous avons winsorisée)
-data["daily_returns"] = calc_returns(data["srs"],1)
-
-plt.plot(data["daily_returns"]);
-
-# Mise à l'échelle de la volatilité
+# Adapte the volatility
 def rescale_to_target_volatility(srs,vol):
     return srs *  vol / srs.std() / np.sqrt(252)
 
@@ -92,13 +103,12 @@ def plot_captured_returns(next_day_captured, plot_with_equal_vol = None):
         
     ((srs.shift(1) + 1).cumprod() - 1).plot()
     plt.ylabel("Cumulative  returns");
-    
-    # Load long-only returns and plot
+
+#Load long-only returns and plot
 captured_returns_longonly = data['next_day_returns']["1990-01-01":]
 plot_captured_returns(captured_returns_longonly)
 
-#3  Calculs des différentes métriques des performances 
-
+#Define performance metrics and ratios
 def returns(srs, tau=252):
     return srs.mean()*tau
 
@@ -134,7 +144,7 @@ def calculate_statistics(next_day_captured, print_results=True):
     
     srs = next_day_captured.shift(1)
     
-    # Calcul des métriques anualisées :
+#Compute performance metrics and ratios :
     returns_annualised =  returns(srs, tau)
     vol_annualised = volatility(srs, tau)
     downside_devs_annualised = calc_downside_deviation(srs, tau)
@@ -142,12 +152,10 @@ def calculate_statistics(next_day_captured, print_results=True):
     pnl_ratio = calc_profit_and_loss_ratio(srs)
     perc_positive_return = lperc_positive_returns(srs)
     
-    # Calcul des "risk-adjusted performance metrics" :
     sharpe = sharpe_ratio(srs, tau)
     sortino = sortino_ratio(srs, tau)
     calmar = calmar_ratio(srs, tau)
     
-    # Afficher les différents results 
     if print_results:
         print("\033[4mPerformance Metrics:\033[0m")
         print(f"Annualised Returns = {returns_annualised:.2%}")
@@ -160,7 +168,6 @@ def calculate_statistics(next_day_captured, print_results=True):
         print(f"Percentage of positive returns = {perc_positive_return:.2%}")
         print(f"Profit/Loss ratio = {pnl_ratio:.3f}")
    
-    # Return performance metrics
     return {
         "returns_annualised":  returns_annualised,
         "vol_annualised": vol_annualised,
@@ -172,14 +179,21 @@ def calculate_statistics(next_day_captured, print_results=True):
         "pnl_ratio": pnl_ratio,
       }
 
-
-# Calcul des métriques de performances pour une stratégie basique long-only
 stats_longonly = calculate_statistics(captured_returns_longonly)
 
+
+# In[ ]:
+
+
+## TIME SERIES MOMENTUM ##
+
+
+# In[11]:
+
+
+#Scale volatility to improuve Time series momentum
 VOL_LOOKBACK = 60 # Lookback window pour calculer la daily volatility
 VOL_TARGET = 0.15 # Volatility target annualisée
-
-#Calcul de la volatilité quotidienne
 
 def volatility_scaled_returns(daily_returns, vol_lookback = VOL_LOOKBACK, vol_target = VOL_TARGET):
     
@@ -189,14 +203,13 @@ def volatility_scaled_returns(daily_returns, vol_lookback = VOL_LOOKBACK, vol_ta
         .fillna(method='bfill')
     )
     
-#volatilité annualisée 
     vol = daily_vol * np.sqrt(252)
     
     scaled_returns = vol_target * daily_returns / vol.shift(-1) # shift(-1) car ex-ante
     
     return scaled_returns
 
-# Calcul des returns ajustés de la volatility
+# adjusted returns
 data['scaled_returns'] = volatility_scaled_returns(data["daily_returns"])
 print(f"Signal annualised volatility: {data['scaled_returns'].std()*np.sqrt(252):.2%}")
 
@@ -205,56 +218,79 @@ data["scaled_next_day_returns"] = data["scaled_returns"].shift(-1)
 
 captured_returns_volscaled_lo = data["scaled_next_day_returns"]["1990-01-01":]
 
-# Plot des returns
+# Plot returns
 plot_captured_returns(captured_returns_longonly, plot_with_equal_vol = VOL_TARGET)
 
-# Plot des volatility-scaled returns
+# Plot volatility-scaled returns
 plot_captured_returns(captured_returns_volscaled_lo, plot_with_equal_vol = VOL_TARGET)
 plt.legend(["Unscaled", "Vol. scaled"]);
 
 print("Vol. scaled long only:")
 stats_volscaled_longonly = calculate_statistics(captured_returns_volscaled_lo)
-
 print("Unscaled long only:")
 stats_longonly = calculate_statistics(captured_returns_longonly)
 
-#Utilisation time Series Momentum 
 
-data["annual_returns"] = calc_returns(data["srs"], 252)
+# In[25]:
 
-# Pour rappel : stratégie long-only
+
+#Compute the returns#
+def calc_returns(srs, offset=1):
+    
+    returns = srs / srs.shift(offset) - 1
+    return returns
+data["annual_returns"] = calc_returns(data["Close"],252)
+data.head()
+
+
+# In[26]:
+
+
+# strategy long-only
 captured_returns_volscaled_lo = data["scaled_next_day_returns"]["1990-01-01":]
 
-# Stratégie TSMOM, on ajuste le returns en multipliant par +1 si annual_returns > 0 et par -1 si annual_returns < 0
+# Strategy TSMOM
 captured_returns_volscaled_tsmom = (
     np.sign(data["annual_returns"])*data["scaled_next_day_returns"]
 )["1990-01-01":]
 
-# Plot des returns de la stratégie time series momentum vs de la stratégie long-only
+# Plot returns of TSMOM and long-only
 plot_captured_returns(captured_returns_volscaled_lo, plot_with_equal_vol = VOL_TARGET)
 plot_captured_returns(captured_returns_volscaled_tsmom, plot_with_equal_vol = VOL_TARGET)
 plt.legend(["Long Only", "TSMOM"]);
 
-# Calcul des métriques de performance
+
+# In[27]:
+
+
+#Compute performance metrics and ratios for TSMOM :
 stats_volscaled_tsmom = calculate_statistics(captured_returns_volscaled_tsmom)
+
+
+# In[29]:
+
+
+#explore performance by varying the time horizon. 
 
 signal_lookback = [5, 21, 63, 126, 252]
 
 for lookback in signal_lookback:
     srs = (
-        np.sign(calc_returns(data['srs'], lookback))*data['scaled_next_day_returns']
+        np.sign(calc_returns(data['Close'], lookback))*data['scaled_next_day_returns']
     )['1990-01-01':]
     plot_captured_returns(srs, plot_with_equal_vol=VOL_TARGET)
     
 plt.legend(signal_lookback);
 
+#combined signals to monitor better performance
+
 ws = [.0, .25, .5, .75, 1.0]
 
 for w in ws:
     srs = (
-        w * np.sign(calc_returns(data['srs'], 21))
+        w * np.sign(calc_returns(data['Close'], 21))
         * data['scaled_next_day_returns']
-        + (1-w) * np.sign(calc_returns(data['srs'], 252))
+        + (1-w) * np.sign(calc_returns(data['Close'], 252))
         * data['scaled_next_day_returns']
     )['1990-01-01':]
     plot_captured_returns(srs, plot_with_equal_vol=VOL_TARGET)
@@ -265,10 +301,19 @@ for w in ws:
 plt.legend(ws);
 
 
-print('Correlation.\n') 
+# ### TSMOM as a tool to diversify 
+
+# In[30]:
+
+
+#Search correlation between TSMOM and long-only
 captured_returns_volscaled_lo.corr(captured_returns_volscaled_tsmom)
 
-print('Portefeuille Pondéré.\n')
+
+# In[31]:
+
+
+#Analyse the returns of portfolio that has 50% TSMOM and 50% long-only
 calculate_statistics(.5*(captured_returns_volscaled_lo+captured_returns_volscaled_tsmom))
 plot_captured_returns(.5*(captured_returns_volscaled_lo+captured_returns_volscaled_tsmom), plot_with_equal_vol=VOL_TARGET)
 plot_captured_returns(captured_returns_volscaled_lo, plot_with_equal_vol=VOL_TARGET)
@@ -277,9 +322,11 @@ plot_captured_returns(captured_returns_volscaled_tsmom, plot_with_equal_vol=VOL_
 legends = ['portfolio', 'Long only', 'TSMOM']
 plt.legend(legends);
 
-print('Comparaison performance.\n')
+
+# In[32]:
 
 
+#Zoom the graph to get a better view
 calculate_statistics(.5*(captured_returns_volscaled_lo["1990-01-02": "2010-12-31"]+captured_returns_volscaled_tsmom["1990-01-02": "2010-12-31"]))
 plot_captured_returns(.5*(captured_returns_volscaled_lo["1990-01-02": "2010-12-31"]+captured_returns_volscaled_tsmom["1990-01-02": "2010-12-31"]), plot_with_equal_vol=VOL_TARGET)
 plot_captured_returns(captured_returns_volscaled_lo["1990-01-02": "2010-12-31"], plot_with_equal_vol=VOL_TARGET)
@@ -287,4 +334,9 @@ plot_captured_returns(captured_returns_volscaled_tsmom["1990-01-02": "2010-12-31
 
 legends = ['portfolio', 'Long only', 'TSMOM']
 plt.legend(legends);
+
+
+# The performance of the portfolio is better than that of long-only or TSMOM alone.
+# 
+# To observe the phenomenon, it is interesting to zoom in on a part of the curve. It appears that the long-only only strategy experiences considerable losses during the crisis periods of the internet bubble (2001) and the subprime crisis (2008–2009). On the other hand, the TSMOM strategy is kept and allows for the loss-compensation.
 
